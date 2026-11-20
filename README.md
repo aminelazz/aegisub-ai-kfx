@@ -42,7 +42,7 @@ flowchart LR
 5. *(Optional, for AI Prompt mode)* Add your Gemini API key:
    - Recommended: Open Colab's **Secrets** (key icon on the left sidebar), add a secret named `GEMINI_API_KEY`, and enable notebook access.
    - Or paste your key directly into the `GEMINI_API_KEY` form field in **Cell 2.3**.
-   - **No API key?** Leave `GENERATION_MODE` on `"Offline Built-in Preset (No API Key Needed)"` to use all 5 customizable presets completely free and offline.
+   - **No API key?** Leave `GENERATION_MODE` on `"Offline Built-in Preset (No API Key Needed)"` to use all 8 customizable presets completely free and offline.
 
 ---
 
@@ -112,11 +112,13 @@ Choose `FONT_SOURCE`:
 
 Right after loading, Cell `2.1` prints and displays an **Interactive Line Inspector Table** showing `Line #1..#N`, `Start Time`, `End Time`, `Style Name`, syllable count, and tag-stripped clean lyrics so you can pick exact ranges for your intro, verse, chorus, and outro.
 
-### 2.2 Exact Syllable Layout & Vector Math Engine
-Parses `[Script Info]`, `[V4+ Styles]`, and `[Events]` (`\k`, `\kf`, `\K`, `\ko`, multiple tags per `{...}`, plus line-level `\an1`–`\an9`, `\pos`, `\fs`, `\fscx`, `\fscy`, `\fsp` overrides). Using **`OS/2` (`usWinAscent + usWinDescent`) GDI/libass-calibrated FreeType metrics** via `fontTools` + Pillow prefix-width differences across the entire line, it computes exact non-overlapping coordinates for every line and syllable:
+### 2.2 Exact Syllable, Character & Word Layout + Vector Math Engine
+Parses `[Script Info]`, `[V4+ Styles]`, and `[Events]` (`\k`, `\kf`, `\K`, `\ko`, multiple tags per `{...}`, plus line-level `\an1`–`\an9`, `\pos`, `\fs`, `\fscx`, `\fscy`, `\fsp` overrides). Using **`OS/2` (`usWinAscent + usWinDescent`) GDI/libass-calibrated FreeType metrics** via `fontTools` + Pillow prefix-width differences across the entire line, it computes exact non-overlapping coordinates for every line, word, syllable, and individual character (`syl.chars`, `line.words`), plus cross-line continuity (`line.prev_line`, `line.next_line`, `line.progress`):
 - `left`, `center`, `right`, `width`
 - `top`, `middle`, `bottom`, `height`
 - `x` (`center`), `y` (`middle`), `start_ms`, `end_ms`, `duration_ms`
+- Per-character (`CharBox` inside `syl.chars`) and word-group (`WordBox` inside `line.words`) geometry & timing
+- Real glyph outline extraction (`glyph_to_ass_path`) & interior/contour glyph pixel sampling (`sample_glyph_pixels`) using the active font file
 
 Optional spacing fine-tuning parameters in Cell `2.2`:
 - `WIDTH_CALIBRATION_SCALE` (default `1.0`): multiplicative horizontal width scale (`< 1.0` pulls syllables closer together; `> 1.0` spreads them apart).
@@ -179,7 +181,7 @@ Best when you want completely different effects per section (`+ Add KFX Section 
 
 - **Shared Toolbar Actions:** `+ Add Color Range` / `+ Add KFX Section Rule`, `Delete Range` / `Delete Rule`, `Validate Line Mapping` (checks overlaps and unassigned lines), `Export Config JSON`, and **`Generate Full KFX .ass`** (compiles immediately with an inline download button).
 
-#### 5 Built-In Offline Presets (All 4 Palette Colors `\1c`, `\2c`, `\3c`, `\p1` Aware)
+#### 8 Built-In Offline Presets (All 4 Palette Colors `\1c`, `\2c`, `\3c`, `\p1` Aware)
 | Preset Name | Layers & Visual Style |
 | :--- | :--- |
 | `neon_glow_bounce` | **Layer 0:** Dark outline + pulsing blurred `\3c` neon aura. **Layer 1:** Elastic 2-segment `\move` upward syllable bounce + `\2c -> \1c` flash. **Layer 2:** Radial burst of spinning `\p1` 4-point stars & circles using `particle_c`. |
@@ -187,17 +189,22 @@ Best when you want completely different effects per section (`+ Add KFX Section 
 | `gradient_clip_wipe` | **Layer 0–1:** Clean shadow + base fill. **Layer 2:** 5-band vertical `\1c -> \2c` gradient via `\clip` strips with `\3c` outline wiping left-to-right across each syllable. **Layer 3:** Sweeping leading-edge `star4` shimmer glint colored with `particle_c`. |
 | `shatter_disintegrate` | **Layer 0–1:** High-impact hit flash (`\fscx122\fscy122`) followed by rapid blur/dissolve. **Layer 2:** Grid of randomized crystalline `\p1` shard polygons driven by `particle_c` erupting across the syllable bounding box with fast `\frz` spin. |
 | `sparkle_trail` | **Layer 0–2:** `\3c` glow halo + smooth `\clip` transition (`\2c -> \1c`). **Layer 3:** Progressive comet trail of twinkling `star4`/`diamond` (or floating `circle` bubbles when `"bubble"` is in the prompt) colored with `particle_c` spawning from `syl.left` to `syl.right`. |
+| `sky_clouds_backdrop` | **Layer 0:** Rounded multi-band sky gradient banner behind the entire line (`make_rounded_rect`, bridged cleanly across consecutive lines with `line_bridge_times`). **Layer 1:** Soft blurred `cloud` vectors drifting left-to-right clipped inside the sky banner. **Layer 2–4:** Crisp `\clip`-lit syllables above the clouds + subtle `particle_c` shimmer motes. |
+| `multi_slash_exit` | **Layer 0–1:** Crisp shadow + punchy `\1c` hit hold. **Layer 2:** Frame-by-frame (`FBF`) multi-cut diagonal polygon split using `slice_bbox_polygons` + `fbf_steps` + `transform_polygon` so sliced glyph halves spin apart cleanly. **Layer 3:** Crossing `slash` & `crescent` katana beams + diagonal `particle_c` sparks. |
+| `pixel_dust_dissolve` | **Layer 0–1:** Cross-line aura + cascading per-character (`syl.chars`) bounce & sweep using `ease(..., "out_back")`. **Layer 2:** True glyph-shaped `sample_glyph_pixels(syl)` dust/pixel particles eroding outward along curved cubic `bezier_point` trajectories with `particle_c`. |
 
 #### AI Prompt-Driven Generator (`google-genai`)
-Set `GENERATION_MODE = "AI Prompt-Driven Generator (Gemini API)"`, choose a model (`gemini-4-hydrogen`, `gemini-4-argon`, or `gemini-4-carbon`), and set `GEMINI_THINKING_LEVEL` (`"low"` default to keep reasoning fast without hitting token caps, or `"medium"`/`"high"`).
+Set `GENERATION_MODE = "AI Prompt-Driven Generator (Gemini API)"`, choose a model (`gemini-4-hydrogen`, `gemini-4-neon`, `gemini-4-argon`, or `gemini-4-carbon`), and set `GEMINI_THINKING_LEVEL` (`"low"` default to keep reasoning fast without hitting token caps, or `"medium"`/`"high"` recommended for complex scenes).
+- **Opt-In AI Visual Self-Review (Credit Saver):** `ENABLE_AI_VISUAL_REVIEW` (checkbox in the UI / form field in Cell `2.3`) defaults to **`False`** so zero extra API credits are spent unless you check it. When enabled, Stage 2 automatically renders a 3-frame `ffmpeg` + `libass` contact sheet (`Start`, `Mid-Hit`, `Trail/Exit`) and sends it to Gemini to spot and fix spacing, clipping, or `\p1` geometry issues.
+- **Interactive Follow-Up Tweak Box:** After generating `.ass` output, enter plain-English adjustments (e.g., *"slow down the chain swing and brighten the glow"*) in the UI's **Follow-Up Tweak** bar and click **Apply AI Tweak & Rebuild .ass** to refine the active rule or master effect iteratively without regenerating the whole project.
 - In **Mode A**, Gemini is called **once** for `MASTER_KFX_PROMPT`, and the generated code is automatically dry-run verified across two contrasting `palette` dicts so colors are never hardcoded and always swap cleanly per range.
 - In **Mode B**, each matched rule generates its own dedicated, AST-sandboxed `generate_line_kfx` function using that rule's colors and prompt.
 
 Example creative prompts to try:
 1. *"Soft cyan neon glow when each syllable hits, gentle upward bounce, and tiny 4-point star vector particles `\p1` bursting from the syllable center and fading out."*
 2. *"Golden fire embers rising upward with subtle flicker, warm orange glow aura on Layer 0, and crimson-to-gold sweep on Layer 1."*
-3. *"Ice crystal freeze: sharp white-blue impact pulse, horizontal glint flash across the syllable, and tiny diamond snowflakes drifting down."*
-4. *"Retro synthwave laser: magenta and electric cyan split shadow, snappy scale pop, and glowing geometric diamonds flying outward."*
+3. *"Rounded gradient sky banner behind the entire line on Layer 0 with blurred white vector clouds drifting left-to-right clipped inside the banner, crisp karaoke wipe above, and floating stars."*
+4. *"When each syllable ends, flash two crossing diagonal katana slash streaks and slice the syllable cleanly into rotating polygon halves that fly apart in 35ms FBF steps."*
 5. *"Gentle musical notes (`music_note`) floating upward along a sine arc as each syllable sings, with pastel lavender outline glow."*
 
 ### 2.4 & 2.5 Unified Compilation, Section Preview & Download
@@ -215,17 +222,30 @@ def generate_line_kfx(line, style, meta, helpers, rng, config, palette) -> list[
     ...
 ```
 
-- `line` (`KaraokeLine`): `index`, `start_ms`, `end_ms`, `duration_ms`, `style`, `alignment`, `left`, `center`, `right`, `top`, `middle`, `bottom`, `width`, `height`, `x`, `y`, `scale_x`, `scale_y`, `plain_text`, `syllables`
-- `syl` (`Syllable`): `index`, `word_index`, `text`, `raw_text`, `k_type`, `start_ms`, `end_ms`, `duration_ms`, `rel_start_ms`, `rel_end_ms`, `left`, `center`, `right`, `top`, `middle`, `bottom`, `width`, `height`, `x`, `y`, `is_space`
+- `line` (`KaraokeLine`): `index`, `start_ms`, `end_ms`, `duration_ms`, `style`, `alignment`, `left`, `center`, `right`, `top`, `middle`, `bottom`, `width`, `height`, `x`, `y`, `scale_x`, `scale_y`, `plain_text`, `syllables`, `words` (`WordBox` list), `prev_line`, `next_line`, `total_lines`, `progress` (`0.0`–`1.0` across the song)
+- `syl` (`Syllable`): `index`, `word_index`, `text`, `raw_text`, `k_type`, `start_ms`, `end_ms`, `duration_ms`, `rel_start_ms`, `rel_end_ms`, `left`, `center`, `right`, `top`, `middle`, `bottom`, `width`, `height`, `x`, `y`, `is_space`, `chars` (`CharBox` list with per-character `text`, `index`, `line_char_index`, `left`, `center`, `right`, `top`, `middle`, `bottom`, `width`, `height`, `x`, `y`, `start_ms`, `end_ms`, `duration_ms`)
+- `word` (`WordBox`): `index`, `text`, `start_ms`, `end_ms`, `duration_ms`, `left`, `center`, `right`, `top`, `middle`, `bottom`, `width`, `height`, `x`, `y`, `syllables`
 - `palette` (`dict`): `primary_1c` (`\1c`), `highlight_2c` (`\2c`), `glow_3c` (`\3c`), `particle_c` (`\p1`), plus `primary_hex`, `highlight_hex`, `glow_hex`, `particle_hex`
 - `config` (`dict`): `particle_density`, `motion_intensity`, `rule_name`, `prompt`, `palette` (plus compatibility keys `primary_hex`, `secondary_hex`, `outline_hex`, `particle_hex`, `primary_ass`, `secondary_ass`, `outline_ass`, `particle_ass`)
 - `helpers` (`KFXHelpers`):
   - `ass_color("#RRGGBB")` -> `"&HBBGGRR&"` (converts RGB to ASS BGR)
   - `ass_alpha(0..255)` -> `"&HXX&"`
   - `lerp(a, b, t)`, `clamp(val, lo, hi)`, `lerp_color(hex1, hex2, t)`
+  - `ease(t, kind="out_cubic")` (`linear`, `in_quad`, `out_quad`, `in_out_quad`, `in_cubic`, `out_cubic`, `in_out_cubic`, `in_sine`, `out_sine`, `in_out_sine`, `in_back`, `out_back`, `out_elastic`, `out_bounce`) & `bezier_point(p0, p1, p2, p3, t)` (set `p3=None` for quadratic)
   - `make_event(layer, start_ms, end_ms, style_name, text, effect="fx", actor="")`
-  - `make_rect(w, h)`, `make_shard(w, h, rng)`
-- `SHAPES` dict (`\p1` vector drawings centered at `(0, 0)`): `star4`, `star5`, `petal`, `circle`, `diamond`, `heart`, `music_note`.
+  - `make_rect(w, h)`, `make_rounded_rect(w, h, radius=12.0)`, `make_shard(w, h, rng)`
+  - `make_chain_link(w=34.0, h=16.0, thickness=4.5)` — hollow rounded stadium chain link (`[0..w] x [0..h]` non-negative outer + reversed hole contour)
+  - `make_ribbon(points, widths=6.0)` & `make_lightning(x1, y1, x2, y2, rng, segments=8, jitter=14.0, thickness=2.8)` — screen-space polygonal paths for `\an7\pos(0,0)`
+  - `sample_glyph_pixels(syl, step=4, contour_only=False, max_points=260)` — samples real rasterized glyph interior/outline `(x, y)` points for particle dissolves and morphs
+  - `glyph_to_ass_path(syl, absolute=False)` & `deform_ass_path(path_str, fn)` — converts syllable characters into true vector `\p1` paths (using `fontTools`) and applies wave/shatter distortions
+  - `line_bridge_times(line, default_in_ms=260, default_out_ms=280, max_gap_ms=800)` — returns `(line_in, line_out, fade_in, fade_out)` using `prev_line` / `next_line` so backdrops never flicker between consecutive lyrics
+  - `polygon_to_ass_path(points)`, `clip_polygon_halfplane(poly, px, py, nx, ny)`
+  - `slice_bbox_polygons(left, top, right, bottom, cuts)` — splits a box across `(px, py, angle_deg)` cut lines
+  - `shift_polygon(poly, dx, dy)`, `transform_polygon(poly, cx, cy, dx=0.0, dy=0.0, angle_deg=0.0)`
+  - `fbf_steps(start_ms, end_ms, step_ms=35)` — centisecond-aligned `(f_start, f_end, progress)` frame steps for diagonal slicing & complex vector clips
+- `SHAPES` dict (`\p1` vector drawings using non-negative `[0..w] x [0..h]` coordinates for exact `\an5` centering in `libass`): `star4`, `star5`, `petal`, `circle`, `diamond`, `heart`, `music_note`, `cloud`, `slash`, `crescent`, `lightning`, `ring`.
+
+> **Tip for complex AI prompts:** Because `libass` cannot interpolate diagonal polygon `\clip(m ...)` inside `\t(...)`, tell the prompt to layer clipped backdrops cleanly (`\clip(bx1,by1,bx2,by2)`) or use FBF (`fbf_steps` + `slice_bbox_polygons` + `transform_polygon`) for diagonal syllable splits. Set `GEMINI_THINKING_LEVEL = "medium"` or `"high"` with `gemini-4-argon` / `gemini-4-carbon` for complex multi-layer choreography.
 
 ---
 
