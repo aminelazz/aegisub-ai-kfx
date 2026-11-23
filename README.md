@@ -2,7 +2,7 @@
 
 A complete, ready-to-run **Google Colab** Jupyter Notebook ([aegisub-ai-kfx-studio.ipynb](aegisub-ai-kfx-studio.ipynb)) that automates **Anime Romaji Karaoke (KFX)** creation in two modular stages.
 
-- **Path A (Full Pipeline — Stage 1 -> Stage 2):** Upload raw anime OP/ED audio or video (`.mp3`, `.wav`, `.flac`, `.mp4`, `.mkv`) + line-timed romaji lyrics, isolate vocals with **Meta Demucs (`htdemucs`)**, auto-time syllables into `auto_timed_karaoke.ass` using forced alignment + a Japanese Mora Syllabifier, and synthesize multi-layer KFX into `final_kfx_karaoke.ass`.
+- **Path A (Full Pipeline — Stage 1 -> Stage 2):** Upload raw anime OP/ED audio or video (`.mp3`, `.wav`, `.flac`, `.mp4`, `.mkv`) + either line-timed lyrics, **untimed plain text lyrics**, or **no lyrics at all**! Stage 1 isolates vocals with **Meta Demucs (`htdemucs`)**, auto-transcribes (via **Whisper Local** or **Gemini Audio API**) or auto-times your lyrics into `auto_timed_karaoke.ass` with a Japanese Mora Syllabifier, lets you **download & review/edit in Aegisub** (or re-upload in Cell `2.1`), and synthesizes multi-layer KFX into `final_kfx_karaoke.ass`.
 - **Path B (Skip Stage 1 — Stage 2 Only):** Already have a `\k` / `\kf` / `\ko`-timed `.ass` file? Skip Stage 1 completely, upload your timed `.ass` + `.ttf`/`.otf` font into **Stage 2**, inspect your numbered lines in the **Line Inspector Table**, choose either **Mode A (Shared KFX Animation + Line-Range Colors)** or **Mode B (Unique KFX Animation + Colors per Line Range)**, preview any line in Colab, and download `final_kfx_karaoke.ass`.
 
 ---
@@ -12,11 +12,10 @@ A complete, ready-to-run **Google Colab** Jupyter Notebook ([aegisub-ai-kfx-stud
 ```mermaid
 flowchart LR
     A["Raw Audio or Video (.mp3, .wav, .mp4, .mkv)"] --> B["1.3 Demucs Vocal Stem (htdemucs)"]
-    L["Line-Timed Romaji (.ass, .srt, or pasted)"] --> C["1.4 Forced Alignment (MMS_FA / WhisperX)"]
+    L["Lyrics (Auto-Transcribe / Untimed / Timed)"] --> C["1.4 Transcribe, Align & Mora Syllabifier"]
     B --> C
-    C --> D["Japanese Mora Syllabifier"]
-    D --> E["auto_timed_karaoke.ass"]
-    E --> F["2.1 Load .ass + Font & Line Inspector Table"]
+    C --> E["Review & Download auto_timed_karaoke.ass"]
+    E -->|"Optional Aegisub Edit & Re-upload"| F["2.1 Load .ass + Font & Line Inspector Table"]
     U["Existing \\k-timed .ass (Skip Stage 1)"] --> F
     F --> G["2.2 FreeType/OS2 Layout Math"]
     G --> T{"2.3 KFX Mode Toggle"}
@@ -54,14 +53,20 @@ flowchart LR
 Choose `ALIGNMENT_ENGINE`:
 - `torchaudio_mms_fa` *(default, recommended)*: Uses `torchaudio.pipelines.MMS_FA` for robust, lightweight word-level forced alignment against romaji tokens.
 - `whisperx`: Optional WhisperX forced-alignment backend (`language_code="ja"`).
+- `INSTALL_WHISPER_TRANSCRIBE_DEPS = True` *(default)*: Installs `faster-whisper` + `pykakasi` for free local vocal transcription and Japanese->Romaji conversion when you don't have a lyrics file.
 
-### 1.2 Inputs: Media & Line-Timed Lyrics
+### 1.2 Inputs: Media & Lyrics (Auto-Transcribe, Untimed, or Line-Timed)
 - **Audio / Video (`AUDIO_SOURCE` & `EXISTING_PATH_OR_MOUNTED_PATH`):**
   - Choose `"Upload Audio/Video File"` to upload from your computer, **or** `"Use Existing / Mounted Drive Path"` and enter the file path (e.g., `/content/drive/MyDrive/Anime/op.mkv` or `MyDrive/Anime/op.mp3`) in `EXISTING_PATH_OR_MOUNTED_PATH`. Leave it blank or pass a Drive folder path to list matching media files automatically.
   - Supports `.mp3`, `.wav`, `.flac`, `.ogg`, `.m4a`, `.aac`, `.mp4`, `.mkv`, `.webm`, and `.mov` (automatically extracted to 44.1 kHz stereo WAV via `ffmpeg`).
-- **Line-Timed Romaji Lyrics (`LYRICS_INPUT_MODE`):**
-  - Upload a line-timed `.ass` or `.srt` file, **or** select `"Use Existing / Mounted Drive Lyrics File"` and specify `LYRICS_FILE_PATH` (existing `\k` tags, if any, are stripped cleanly while preserving line timestamps), **or**
-  - Paste line-timed lyrics directly in `PASTED_LYRICS` using any of these formats:
+- **Lyrics Source (`LYRICS_INPUT_MODE`):**
+  - **No lyrics at all (Song-only):**
+    - `"Auto-Transcribe from Vocals (Whisper Local)"` — **free local GPU transcription** via `faster-whisper` (`small`/`medium`/`large-v3`/`turbo`) + `pykakasi` Japanese->Romaji conversion.
+    - `"Auto-Transcribe from Vocals (Gemini API)"` — sends compressed vocals to **Gemini Audio API** (`gemini-4-hydrogen`, `gemini-4-neon`, `gemini-4-argon`, or `gemini-4-carbon`) to transcribe directly into clean, spaced Romaji with timestamps (great for stylized singing and embedded English words).
+  - **Untimed plain text lyrics:**
+    - `"Paste Untimed Plain Lyrics Below (Auto-Time to Vocals)"` or `"Upload Untimed Plain Text Lyrics (.txt)"` (or point `LYRICS_FILE_PATH` to a plain `.txt` file) — aligns your lines automatically via **Gemini Audio API** or **local `MMS_FA`** (`UNTIMED_ALIGNMENT_METHOD`).
+  - **Line-timed lyrics (existing modes):**
+    - `"Upload Line-Timed .ass or .srt File"`, `"Use Existing / Mounted Drive Lyrics File"` (`.ass`/`.srt`/`.lrc`/`.txt`), `"Use Built-in Sample Romaji (Demo Format)"`, or `"Paste Line-Timed Romaji Below"`:
     ```text
     # Bracketed start - end
     [00:01.20 - 00:05.60] Hikari wo sagashite yozora wo kakete yuku
@@ -77,10 +82,12 @@ Choose `ALIGNMENT_ENGINE`:
     ```
 
 ### 1.3 Vocal Isolation (`htdemucs`)
-Runs Meta's Demucs (`htdemucs` or `htdemucs_ft`, `--two-stems=vocals`) on the extracted audio so electric guitars, drums, and synths don't interfere with alignment, resamples the vocal stem to 16 kHz mono, and embeds a 20-second audio preview in Colab.
+Runs Meta's Demucs (`htdemucs` or `htdemucs_ft`, `--two-stems=vocals`) on the extracted audio so electric guitars, drums, and synths don't interfere with transcription or forced alignment, resamples the vocal stem to 16 kHz mono, and embeds a 20-second audio preview in Colab.
 
-### 1.4 Forced Alignment & Japanese Mora Syllabifier
-Aligns each line's words against the isolated vocal stem, splits each romaji word into Japanese morae, distributes each word's centiseconds proportionally (`sum(\k) == word_duration_cs`), and writes `auto_timed_karaoke.ass`.
+### 1.4 Auto-Transcription, Forced Alignment & Review / Download Loop
+Transcribes (when selected) or aligns each line's words against the isolated vocal stem, splits each romaji word into Japanese morae, distributes each word's centiseconds proportionally (`sum(\k) == word_duration_cs`), writes `auto_timed_karaoke.ass`, prints the **Stage 1 Transcription & Timing Review Table**, and displays a **`Download auto_timed_karaoke.ass (Check / Edit in Aegisub)`** button.
+
+> **Review & Optional Edit Before Stage 2:** Inspect the extracted/aligned lyrics and timestamps in the Cell `1.4` review table—or click **Download `auto_timed_karaoke.ass`** (or set `DOWNLOAD_STAGE1_ASS = True`) to check and refine lyrics or `\k` timing in Aegisub. If you edited the file locally, select `ASS_SOURCE = "Upload existing \k/\kf-timed .ass file"` in **Cell `2.1`** to upload your edited `.ass`; otherwise proceed straight to **Cell `2.1`** with `"Use auto_timed_karaoke.ass from Stage 1"`.
 
 **Syllabifier Rules & Options:**
 - Handles standard CV (`ka, ki, ku, ke, ko`), palatalized yōon/digraphs (`sha, chu, ryo, kya, nya, tsu, dzu`), standalone vowels (`a, i, u, e, o` and macrons `ā, ī, ū, ē, ō`), standalone moraic `n` (`minna` -> `mi, n, na`; `senpai` -> `se, n, pa, i`) and `m` before `b/p/m` (`sempai` -> `se, m, pa, i`), and apostrophe breaks (`kon'ya` -> `ko, n', ya`; `shin'ai` -> `shi, n', a, i`).
@@ -91,8 +98,6 @@ Aligns each line's words against the isolated vocal stem, splits each romaji wor
   - `True`: `arigatou` -> `a`, `ri`, `ga`, `to`, `u`
   - `False`: `arigatou` -> `a`, `ri`, `ga`, `tou` (2x mora weight on `tou`)
 - Preserves capitalization, punctuation (`Kokoro,`, `(yume!)`), hyphens (`ano-hi`), and falls back cleanly on English words embedded in anime OPs (`Starlight`, `Dream`, `Yeah!`).
-
-You can set `DOWNLOAD_STAGE1_ASS = True` to inspect/tweak `auto_timed_karaoke.ass` in Aegisub before continuing, or proceed straight to **Cell 2.1**.
 
 ---
 
@@ -230,10 +235,16 @@ def generate_line_kfx(line, style, meta, helpers, rng, config, palette) -> list[
 - `helpers` (`KFXHelpers`):
   - `ass_color("#RRGGBB")` -> `"&HBBGGRR&"` (converts RGB to ASS BGR)
   - `ass_alpha(0..255)` -> `"&HXX&"`
-  - `lerp(a, b, t)`, `clamp(val, lo, hi)`, `lerp_color(hex1, hex2, t)`
+  - `lerp(a, b, t)`, `clamp(val, lo, hi)`, `lerp_color(hex1, hex2, t)`, `color_ramp(hex_list, t)` (multi-stop gradient blend across 2+ `#RRGGBB` hex colors)
   - `ease(t, kind="out_cubic")` (`linear`, `in_quad`, `out_quad`, `in_out_quad`, `in_cubic`, `out_cubic`, `in_out_cubic`, `in_sine`, `out_sine`, `in_out_sine`, `in_back`, `out_back`, `out_elastic`, `out_bounce`) & `bezier_point(p0, p1, p2, p3, t)` (set `p3=None` for quadratic)
+  - `noise(x, y=0.0)` — smooth deterministic 1D/2D C2 value noise in `[-1.0, 1.0]` for organic flame flicker, heat haze, and smoke
+  - `wave_sample(x, t=0.0, amp=12.0, freq=0.015, speed=2.0, y_base=0.0)` — returns `(y, tilt_deg)` aligned with `make_wave_band` so syllables ride/tilt on wave crests
+  - `project_3d(x, y, z, cx, cy, focal=800.0)` — returns `(screen_x, screen_y, scale_pct)` for 3D particle orbits (`z > 0` behind Layer `0`, `z <= 0` front Layer `3+`)
   - `make_event(layer, start_ms, end_ms, style_name, text, effect="fx", actor="")`
   - `make_rect(w, h)`, `make_rounded_rect(w, h, radius=12.0)`, `make_shard(w, h, rng)`
+  - `make_flame(w=32.0, h=64.0, sway=0.0, flicker=0.2, rng=None)` — non-negative organic Bezier flame tongue (`[0..w] x [0..h]` for `\an5\p1`)
+  - `make_blob(rx=28.0, ry=20.0, wobble=0.25, rng=None, lobes=8)` — non-negative smooth C1 Bezier organic blot (watercolor washes, ink splatters, smoke)
+  - `make_wave_band(x1, x2, y_base, bottom_y, amp=12.0, freq=0.015, phase=0.0, segments=24)` — closed screen-space sinusoidal wave polygon for `\an7\pos(0,0)\p1` or `\clip`/`\iclip(m ...)`
   - `make_chain_link(w=34.0, h=16.0, thickness=4.5)` — hollow rounded stadium chain link (`[0..w] x [0..h]` non-negative outer + reversed hole contour)
   - `make_ribbon(points, widths=6.0)` & `make_lightning(x1, y1, x2, y2, rng, segments=8, jitter=14.0, thickness=2.8)` — screen-space polygonal paths for `\an7\pos(0,0)`
   - `sample_glyph_pixels(syl, step=4, contour_only=False, max_points=260)` — samples real rasterized glyph interior/outline `(x, y)` points for particle dissolves and morphs
@@ -243,9 +254,10 @@ def generate_line_kfx(line, style, meta, helpers, rng, config, palette) -> list[
   - `slice_bbox_polygons(left, top, right, bottom, cuts)` — splits a box across `(px, py, angle_deg)` cut lines
   - `shift_polygon(poly, dx, dy)`, `transform_polygon(poly, cx, cy, dx=0.0, dy=0.0, angle_deg=0.0)`
   - `fbf_steps(start_ms, end_ms, step_ms=35)` — centisecond-aligned `(f_start, f_end, progress)` frame steps for diagonal slicing & complex vector clips
+  - `emit_motion_segments(layer, start_ms, end_ms, style_name, body, sample_fn, segments=6, base_tags="", effect="fx", actor="")` — compresses smooth non-linear bounces, waves, and 3D orbits into 5–8 chained `\move` + `\t(...)` segments on `10ms` boundaries (~85% fewer events than FBF)
 - `SHAPES` dict (`\p1` vector drawings using non-negative `[0..w] x [0..h]` coordinates for exact `\an5` centering in `libass`): `star4`, `star5`, `petal`, `circle`, `diamond`, `heart`, `music_note`, `cloud`, `slash`, `crescent`, `lightning`, `ring`.
 
-> **Tip for complex AI prompts:** Because `libass` cannot interpolate diagonal polygon `\clip(m ...)` inside `\t(...)`, tell the prompt to layer clipped backdrops cleanly (`\clip(bx1,by1,bx2,by2)`) or use FBF (`fbf_steps` + `slice_bbox_polygons` + `transform_polygon`) for diagonal syllable splits. Set `GEMINI_THINKING_LEVEL = "medium"` or `"high"` with `gemini-4-argon` / `gemini-4-carbon` for complex multi-layer choreography.
+> **Tip for complex AI prompts:** Because `libass` cannot interpolate diagonal polygon `\clip(m ...)` / `\iclip(m ...)` inside `\t(...)`, use `fbf_steps` for deforming vector shapes (`make_wave_band`, `make_flame`) or diagonal polygon masks (such as `\clip` below + `\iclip` above a moving waterline), and use rectangular `\clip`/`\iclip(x1,y1,x2,y2)` inside `\t(...)` or `emit_motion_segments` whenever only position, rotation, scale, alpha, or color change. Set `GEMINI_THINKING_LEVEL = "medium"` or `"high"` with `gemini-4-argon` / `gemini-4-neon` / `gemini-4-carbon` for complex multi-layer choreography.
 
 ---
 
